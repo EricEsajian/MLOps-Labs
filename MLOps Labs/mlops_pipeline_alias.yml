@@ -1,0 +1,147 @@
+Description: Create a CodePipeline for a Machine Learning Pipeline
+Parameters:
+    SourceBucketPath:
+        Type: String
+        Default: mlops-us-east-1-576192184325 # mlops-us-west-2-901591081018
+        Description: Path of the S3 bucket that CodePipeline should find a sagemaker jobfile
+
+    ModelNamePrefix:
+        Type: String
+        Default: iris-model
+        Description: The name prefix of the model that will be supported by this pipeline
+
+    MLPipelineUserAlias:
+        Type: String
+        Default: rlhu
+        Description: "Your alias to create distinct buckets, functions, etc."
+
+Resources:  
+  DeployPipeline:
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties:
+      Name: !Sub ${ModelNamePrefix}-pipeline
+      RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${MLPipelineUserAlias}
+      ArtifactStore:
+          Type: S3
+          Location: !Sub mlops-${AWS::Region}-${AWS::AccountId}
+      Stages:
+        -
+          Name: Source
+          Actions: 
+            - 
+              Name: SourceAction
+              ActionTypeId: 
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: S3
+              OutputArtifacts: 
+                - Name: SourceOut
+              Configuration: 
+                S3Bucket: 
+                  !Sub ${SourceBucketPath}
+                S3ObjectKey: 
+                  !Sub training_jobs/${ModelNamePrefix}/trainingjob.zip
+              RunOrder: 1
+        -
+          Name: ProcessRequest
+          Actions:
+            -
+              Name: ProcessRequest
+              InputArtifacts:
+                - Name: SourceOut
+              OutputArtifacts:
+                -
+                  Name: RequestOutput
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Version: 1
+                Provider: Lambda
+              Configuration:
+                  FunctionName: mlops-op-process-request # This name should align with "MLOpsProcessRequest"'s "FunctionName" in mlops_op_process_request.yml
+                  UserParameters: !Sub '{"model_prefix": "${ModelNamePrefix}",
+                                         "bucket":"mlops-launch-template-${MLPipelineUserAlias}",
+                                         "prefix":"mlops_operation_handler_alias.yml"}'
+              RunOrder: 1
+        -
+          Name: Train
+          Actions:
+            - 
+              Name: TrainModel
+              InputArtifacts:
+                - Name: SourceOut
+                - Name: RequestOutput
+              OutputArtifacts:
+                - Name: ModelTrainOutput
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${MLPipelineUserAlias}
+                StackName: !Sub mlops-training-${ModelNamePrefix}-job
+                TemplateConfiguration: RequestOutput::params_train.json
+                TemplatePath: RequestOutput::mlops_operation_handler_alias.yml
+                # ParameterOverrides: {} # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/continuous-delivery-codepipeline-parameter-override-functions.html
+              RunOrder: 1
+        -
+          Name: DeployDev
+          Actions:
+            - 
+              Name: DeployDevModel
+              InputArtifacts:
+                - Name: SourceOut
+                - Name: RequestOutput
+              OutputArtifacts:
+                - Name: ModelDeployDevOutput
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                ActionMode: CREATE_UPDATE 
+                RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${MLPipelineUserAlias}
+                StackName: !Sub mlops-deploy-${ModelNamePrefix}-dev
+                TemplateConfiguration: RequestOutput::params_deploy_dev.json
+                TemplatePath: RequestOutput::mlops_operation_handler_alias.yml
+              RunOrder: 1
+        -
+          Name: DeployApproval
+          Actions:
+            -
+              Name: ApproveDeploy
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Version: 1
+                Provider: Manual
+              Configuration:
+                  CustomData: 'Shall this model be put into production?'
+              RunOrder: 1
+        -
+          Name: DeployPrd
+          Actions:
+            - 
+              Name: DeployModelPrd
+              InputArtifacts:
+                - Name: SourceOut
+                - Name: RequestOutput
+              OutputArtifacts:
+                - Name: ModelDeployPrdOutput
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+                
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${MLPipelineUserAlias}
+                StackName: !Sub mlops-deploy-${ModelNamePrefix}-prd
+                TemplateConfiguration: RequestOutput::params_deploy_prd.json
+                TemplatePath: RequestOutput::mlops_operation_handler_alias.yml
+              RunOrder: 1

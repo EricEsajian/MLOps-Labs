@@ -1,0 +1,29 @@
+Parameters:
+    MLOpsCrhelperLayerArnName:
+        Type: String
+        Description: "Outputs name of Arn of the layer's latest version"
+        Default: mlops-crhelper-LayerArn-YOURALIAS
+    MLOpsCrhelperUserAlias:
+        Type: String
+        Default: YOUR_ALIAS
+        Description: "Your alias to create distinct buckets, functions, etc."
+
+Resources:
+    CloudFormationHelperLayer:
+        Type: AWS::Lambda::LayerVersion
+        Properties:
+            CompatibleRuntimes:
+                - python3.6
+                - python3.7
+            LayerName: crhelper
+            Description: https://github.com/aws-cloudformation/custom-resource-helper
+            LicenseInfo: Apache 2.0 License
+            Content:
+                S3Bucket: !Sub mlops-launch-template-${MLOpsCrhelperUserAlias}
+                S3Key: crhelper.zip
+Outputs:
+    LayerArn:
+        Description: Arn of the layer's latest version
+        Value: !Ref CloudFormationHelperLayer
+        Export:
+            Name: !Ref MLOpsCrhelperLayerArnName

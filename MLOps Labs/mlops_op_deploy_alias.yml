@@ -1,0 +1,32 @@
+Parameters:
+    MLOpsDeploymentAlias:
+        Type: String
+        Default: YOUR_ALIAS
+        Description: "Your alias to create distinct buckets, functions, etc."
+
+    MLOpsDeploymentLayerArnName:
+        Type: String
+        Description: "Outputs name of Arn of the layer's latest version"
+        Default: mlops-crhelper-LayerArn-YOURALIAS
+
+Resources:
+    MLOpsDeployment:
+        Type: "AWS::Lambda::Function"
+        Properties: 
+            FunctionName: mlops-op-deployment
+            Handler: mlops_op_deploy.lambda_handler
+            MemorySize: 512
+            Role: !Sub arn:aws:iam::${AWS::AccountId}:role/${MLOpsDeploymentAlias}
+            Runtime: python3.7
+            Timeout: 60
+            Layers:
+                - Fn::ImportValue: !Sub ${MLOpsDeploymentLayerArnName}
+            Code: 
+                S3Bucket: !Sub mlops-launch-template-${MLOpsDeploymentAlias}
+                S3Key: mlops_op_deploy.zip
+
+            Description: "Function that will start a new Sagemaker Deployment"
+            Tags:
+                - Key: Description
+                  Value: Lambda function that process the request and prepares the cfn template for deployment
+
